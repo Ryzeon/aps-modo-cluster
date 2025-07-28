@@ -7,6 +7,9 @@ info de aps modo cluster instalation
 JDK 17
 TOMCAT
 
+### anotation (no lo pongan en el doc)
+postgresql-13
+
 # Nodo 1
 
 RRQUISITO
@@ -15,6 +18,29 @@ Postgress
 elastic search
 activit admin
 activi nodo1
+
+- se intalar postgrsessq13
+- abriendo puerto para que los otros nodos se puedan conectando
+- por seguridad no se permite logeo de root desde el exteror
+-  1. Editar postgresql.conf para escuchar en IP externas
+sudo vi /var/lib/pgsql/13/data/postgresql.conf
+Busca la línea:
+#listen_addresses = 'localhost'
+Y cámbiala a:
+listen_addresses = '*'
+Esto permite a PostgreSQL escuchar en todas las interfaces de red. Puedes poner una IP específica si prefieres restringir
+✅ 2. Editar pg_hba.conf para permitir conexiones remotas
+sudo vi /var/lib/pgsql/13/data/pg_hba.conf
+Agrega al final algo como esto:
+# Permitir a cualquier IP conectarse con autenticación md5 (contraseña)
+host    all             all             0.0.0.0/0               md5
+
+✅ 3. Abrir el puerto 5432 en el firewall
+sudo firewall-cmd --add-port=5432/tcp --permanent
+sudo firewall-cmd --reload
+
+reincia postgresssql13
+sudo systemctl restart postgresql-13
 
 -- creamos los users
 create role alfresco login password 'alfresco';
@@ -42,30 +68,62 @@ habilitamos el firewall
 alfresco    hard    nofile    65536
 
 - Servidor nfs
-Los pasos generales para configurar el almacenamiento compartido son:
- • En el servidor NFS: Puede ser uno de los nodos APS (e.g. Nodo1) o un servidor dedicado de archivos. Instalar los paquetes de NFS si no están presentes (por ejemplo, yum install -y nfs-utils). Definir un directorio a compartir, por ejemplo /opt/alfresco/alfresco-process-services/compartido (puede ser otra ruta según convenga). Establecer la exportación NFS editando /etc/exports:
+(nodo 1)
+instalar nfs
+sudo dnf install -y nfs-utils
 
-/opt/alfresco/alfresco-process-services/compartido  <IP_Nodo1>(rw,sync,no_root_squash) <IP_Nodo2>(rw,sync,no_root_squash)
+Paso 2: Crear el directorio a compartir
+sudo mkdir -p /opt/alfresco/alfresco-process-services/compartido
+sudo chown -R nobody:nobody /opt/alfresco/alfresco-process-services/compartido
+sudo chmod 777 /opt/alfresco/alfresco-process-services/compartido
 
-El ejemplo anterior asume que crearemos el punto compartido bajo /opt/alfresco/alfresco-process-services/compartido en el servidor NFS, otorgando acceso de lectura/escritura a las IP de Nodo1 y Nodo2. Tras agregar la línea, exportar el recurso ejecutando:
+Ahora agregamos la carpeta compartida a exports
+sudo vi /etc/exports
 
-```bash
-exportfs -r
-systemctl start nfs-server
-systemctl enable nfs-server
-```
+agregas las ips de todos los nodos
+remplace {ip-nodo-1) y (ip-nodo-2)
+/opt/alfresco/alfresco-process-services/compartido {ip-nodo-1}(rw,sync,no_root_squash) {ip-modo-2}(rw,sync,no_root_squash)
 
- • En los nodos APS (clientes NFS): Instalar los utilitarios NFS si es necesario (yum install -y nfs-utils). Crear el punto de montaje donde se enlazará el recurso compartido. En nuestro caso, APS usará la carpeta act_data/data para contenido, así que podemos montar el NFS directamente en esa ubicación. Primero, crear la ruta en cada nodo APS:
+-- eneste caso
+/opt/alfresco/alfresco-process-services/compartido 192.168.100.23(rw,sync,no_root_squash) 192.168.100.21(rw,sync,no_root_squash)
 
-```bash
-mkdir -p /opt/alfresco/alfresco-process-services/act_data/data
-```
+[root@apsnode1 ~]# sudo systemctl enable --now nfs-server
+Created symlink /etc/systemd/system/multi-user.target.wants/nfs-server.service → /usr/lib/systemd/system/nfs-server.service.
+[root@apsnode1 ~]# sudo exportfs -r
+[root@apsnode1 ~]# sudo exportfs -v
+/opt/alfresco/alfresco-process-services/compartido
+                192.168.100.23(sync,wdelay,hide,no_subtree_check,sec=sys,rw,secure,no_root_squash,no_all_squash)
+/opt/alfresco/alfresco-process-services/compartido
+                192.168.100.21(sync,wdelay,hide,no_subtree_check,sec=sys,rw,secure,no_root_squash,no_all_squash)
+[root@apsnode1 ~]# sudo firewall-cmd --permanent --add-service=nfs
+success
+[root@apsnode1 ~]# sudo firewall-cmd --reload
+success
+[root@apsnode1 ~]# 
 
-Luego, montar el recurso NFS exportado en esa ruta. Por ejemplo, si usamos Nodo1 como servidor NFS y hemos compartido /opt/alfresco/alfresco-process-services/compartido, montarlo en Nodo1 y Nodo2 así:
 
-#] mount -t nfs <IP_Servidor_NFS>:/opt/alfresco/alfresco-process-services/compartido \
-     /opt/alfresco/alfresco-process-services/act_data/data
 
-Verificar que el contenido montado es accesible en ambos nodos (por ejemplo creando un archivo de prueba en la ruta y comprobando que aparece en el otro nodo). Para que el montaje sea permanente, agregar una entrada en /etc/fstab en ambos nodos APS, por ejemplo:
+# Nodo 2 - 3- etc etc
 
-<IP_Servidor_NFS>:/opt/alfresco/alfresco-process-services/compartido  /opt/alfresco/alfresco-process-services/act_data/data  nfs  defaults  0 0
+#### Montaje de NTF
+sudo dnf install -y nfs-utils
+
+🟦 Paso 2: Crear el punto de montaje
+sudo mkdir -p /opt/alfresco/alfresco-process-services/act_data/data
+
+🟦 Paso 3: Montar el recurso NFS exportado desde Nodo1
+sudo mount -t nfs {ip-nodo-1}/opt/alfresco/alfresco-process-services/compartido \
+  /opt/alfresco/alfresco-process-services/act_data/data
+
+Verificamos creando na archivo
+touch /opt/alfresco/alfresco-process-services/act_data/data/prueba.txt
+ls /opt/alfresco/alfresco-process-services/act_data/data
+
+> entra al nodo 1 y debe aparecer los msmo archivos
+
+🟦 Paso 4: Montaje permanente (aun por verde )
+vi /etc/fstab
+
+{ip-nodo-1}:/opt/alfresco/alfresco-process-services/compartido  /opt/alfresco/alfresco-process-services/act_data/data  nfs  defaults  0 0
+-- en este caso
+192.168.100.23:/opt/alfresco/alfresco-process-services/compartido  /opt/alfresco/alfresco-process-services/act_data/data  nfs  defaults  0 0
