@@ -102,6 +102,36 @@ success
 [root@apsnode1 ~]# 
 
 
+Ahora si a instalar
+movemos el archvo aps.zip
+Creación de carpetas para la instación
+
+Se debe crear la carpeta de alfresco para la instalación
+
+#]
+mkdir /opt/alfresco
+
+
+Damos propiedad al usuario alfresco
+
+#]
+chown -R alfresco:alfresco /opt
+
+
+
+mkdir /opt/instaladores
+
+// se sigue los pasos igual 
+instalcion java
+Instalación de Apache Tomcat (lo mismo)
+Instalación de Alfresco Process Services versión 24.2 (lo mismo)
+SE CAMBIA EN EL MOMENTO DE ACA
+vi /opt/alfresco/alfresco-process-services/tomcat/lib/activiti-app.properties
+
+-> haciendo referencia la folde que se comparte
+contentstorage.fs.rootFolder=/opt/alfresco/alfresco-process-services/compartido
+
+
 
 # Nodo 2 - 3- etc etc
 
@@ -127,3 +157,6 @@ vi /etc/fstab
 {ip-nodo-1}:/opt/alfresco/alfresco-process-services/compartido  /opt/alfresco/alfresco-process-services/act_data/data  nfs  defaults  0 0
 -- en este caso
 192.168.100.23:/opt/alfresco/alfresco-process-services/compartido  /opt/alfresco/alfresco-process-services/act_data/data  nfs  defaults  0 0
+
+y ejecuta 
+sudo mount -a
