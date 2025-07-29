@@ -87,14 +87,17 @@ remplace {ip-nodo-1) y (ip-nodo-2)
 -- eneste caso
 /opt/alfresco/alfresco-process-services/compartido 192.168.100.23(rw,sync,no_root_squash) 192.168.100.21(rw,sync,no_root_squash)
 
-[root@apsnode1 ~]# sudo systemctl enable --now nfs-server
+[root@apsnode1 ~]# 
+sudo systemctl enable --now nfs-server
 Created symlink /etc/systemd/system/multi-user.target.wants/nfs-server.service → /usr/lib/systemd/system/nfs-server.service.
 [root@apsnode1 ~]# sudo exportfs -r
 [root@apsnode1 ~]# sudo exportfs -v
+
 /opt/alfresco/alfresco-process-services/compartido
                 192.168.100.23(sync,wdelay,hide,no_subtree_check,sec=sys,rw,secure,no_root_squash,no_all_squash)
 /opt/alfresco/alfresco-process-services/compartido
                 192.168.100.21(sync,wdelay,hide,no_subtree_check,sec=sys,rw,secure,no_root_squash,no_all_squash)
+
 [root@apsnode1 ~]# sudo firewall-cmd --permanent --add-service=nfs
 success
 [root@apsnode1 ~]# sudo firewall-cmd --reload
@@ -131,6 +134,35 @@ vi /opt/alfresco/alfresco-process-services/tomcat/lib/activiti-app.properties
 -> haciendo referencia la folde que se comparte
 contentstorage.fs.rootFolder=/opt/alfresco/alfresco-process-services/compartido
 
+# Carpeta para almacenamiento de contenido (debe ser la ruta compartida NFS configurada)
+contentstorage.fs.rootFolder=/opt/alfresco/alfresco-process-services/act_data/data
+
+# Carpeta para índices ElasticSearch embebidos (no se usará en modo clúster con ES externo)
+elastic-search.data.path=/opt/alfresco/alfresco-process-services/act_data/activiti-elastic-search-data
+
+# URL base para notificaciones por email (ajustar si se usa DNS o balanceador)
+email.base.url=http://<HOST_NODO>:7070/activiti-app
+
+license.allow-upload=true
+
+
+y agregamos esto si en caso quires cambair el nombre del clustwr creas otro
+cluster.enable=true
+cluster.config.adminapp.url=http://192.168.1.85:7070/activiti-admin
+cluster.config.name=development
+cluster.config.username=dev
+cluster.config.password=dev
+cluster.config.metricsendinginterval=30
+
+lo mismo con elastgic ahora solo abrimos los puertos de elastic
+en el yml de vi /etc/elasticsearch/elasticsearch.yml
+
+transport.host: 0.0.0.0
+
+sudo firewall-cmd --permanent --add-port=9200/tcp
+
+# Recargar reglas
+sudo firewall-cmd --reload
 
 
 # Nodo 2 - 3- etc etc
@@ -159,4 +191,92 @@ vi /etc/fstab
 192.168.100.23:/opt/alfresco/alfresco-process-services/compartido  /opt/alfresco/alfresco-process-services/act_data/data  nfs  defaults  0 0
 
 y ejecuta 
+systemctl daemon-reload
 sudo mount -a
+
+Ahora instalacon de aps normal sin al actibi admin
+
+instaldos el jdk normal
+
+lo mimso con aps copianos el activiti-app.propeties del nodo 1 al nodo 2
+perooo en localhost pon la ip de tu db 
+datasource.driver=org.postgresql.Driver
+datasource.url=jdbc:postgresql://192.168.1.85/activiti?characterEncoding=UTF-8
+datasource.username=alfresco
+datasource.password=alfresco
+
+y 
+contentstorage.fs.rootFolder=/opt/alfresco/alfresco-process-services/act_data/data
+
+elastic-search.rest-client.address=192.168.1.85
+
+// recuerda por cada nodo cambia el use y pass
+cluster.enable=true
+cluster.config.adminapp.url=http://<IP-O-HOST-DEL-ADMIN>:7070/activiti-admin
+cluster.config.name=dev (el nombre que cluster)
+cluster.config.username=dev (user)
+cluster.config.password=dev (pwd)
+cluster.config.metricsendinginterval=30
+
+e ese caso
+cluster.enable=true
+cluster.config.adminapp.url=http://192.168.1.85:7070/activiti-admin
+cluster.config.name=development
+cluster.config.username=dev
+cluster.config.password=dev
+cluster.config.metricsendinginterval=30
+
+
+iniciamos el aps 
+(re pepite lo mismo en los demas nodos)
+
+## vwrificamos la conexion de los nodos ingresamos al panel de adin 
+
+http://192.168.1.85:7070/activiti-admin/#/engine
+
+![alt text](image.png)
+
+en monitorin debe salir los nodso instalados.
+
+con eso finalizamos la instacacion,
+
+ahora pasamosp por la capa de loadbalancer
+
+EL LOAD PUEDE SER EN EL NODO1 O EN OTRO SERVIDOR APARTE EN ESTE CASO NOD 
+
+- habiltioado el sel linux
+innstalko ngnix
+sudo dnf install nginx -y
+sudo setsebool -P httpd_can_network_connect 1
+sudo vi /etc/nginx/conf.d/aps-balancer.conf
+```
+upstream aps_cluster {
+    server 192.168.1.85:7070;
+    server 192.168.1.86:7070;
+}
+
+server {
+    listen 80;
+
+    location /activiti-app/ {
+        proxy_pass http://aps_cluster/activiti-app/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+verificmao erroes 
+sudo nginx -t
+sudo systemctl start nginx
+
+sudo firewall-cmd --add-port=80/tcp --permanent
+abrimos el peuro 80 
+sudo firewall-cmd --reload
+
+verificamos 
+
+ la ip debe ser tu loadbalcner
+http://192.168.1.85/activiti-app
